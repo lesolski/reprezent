@@ -1,0 +1,92 @@
+from datetime import datetime, timedelta
+
+from flask import (Blueprint,
+                   render_template,
+                   request,
+                   redirect,
+                   url_for,
+                   flash,
+                   render_template_string
+                   )
+
+from project import db
+from project.models import Appointment, User
+from project.appointments.forms import BookingForm
+from project.celery_tasks import send_appointment_confirmation
+
+appointments = Blueprint('appointments', __name__, url_prefix='/appointments')
+
+@appointments.route('/booking', methods=['GET','POST'])
+def booking():
+    form = BookingForm(request.form)
+    # handle requests
+    if request.method == 'GET':
+        return render_template('appointments/booking.html', form=form, show_form=False)
+
+    if request.method == 'POST' and form.validate_on_submit():
+        appointment_id = form.appointment_id.data
+        appointment = Appointment.query.filter(Appointment.id == appointment_id).first_or_404()
+        appointment.available = False # make appointment unavailable so others can't book it
+
+        # check if user is new or old by citizen id
+        existing_user = User.query.filter(User.citizen_id == form.citizen_id.data).first()
+        if existing_user is not None:
+            appointment.booked_by = existing_user.id
+            # send celery email to form.email.data but use existing user data for the rest 
+            send_appointment_confirmation.delay(form.name.data, form.email.data, appointment.id, str(appointment.date.date()), str(appointment.date.time()))
+            return redirect(url_for('appointments.booking'))
+        else:
+            # 1. insert new user into db
+            user = User()
+            print(User)
+            user.name = form.name.data
+            user.last_name = form.last_name.data
+            user.email = form.email.data
+            user.phone = form.phone.data
+            user.birthday = form.birthday.data
+            user.address = form.address.data
+            user.city = form.city.data
+            user.citizen_id = form.citizen_id.data
+            db.session.add(user)
+            db.session.flush() # Flush session so it can get ID of new user to add it as owner of appointment
+            appointment.booked_by = user.id
+            db.session.commit()
+            # send celery email to user.email
+            send_appointment_confirmation.delay(form.name.data, user.email, appointment.id, str(appointment.date.date()), str(appointment.date.time()))
+            return redirect(url_for('appointments.booking'))
+    else:
+        # if form doesnt validate re-render template with prefilled form data
+        # since I couldn't make field values to be restarted in wtforms `form` object
+        # I emptied values of fields in template take a look at _helper.html -> value=""
+        appointment = Appointment.query.filter(Appointment.id == form.appointment_id.data).first_or_404()
+        # additional stuff to show in form
+        showForm = [appointment.id, appointment.date.date(), appointment.date.time()]
+        return render_template('appointments/booking.html', form=form, show_form=True, showForm=showForm)
+
+@appointments.route('/cancel_appointment/<int:id>', methods=['POST'])
+# route for canceling appointment
+def cancel_appointment(id):
+    appointment = Appointment.query.filter(Appointment.id == id).first_or_404()
+    appointment.available = True
+    appointment.booked_by = None
+    db.session.commit()
+    return {'ok': True}
+
+@appointments.route('/all', methods=['GET'])
+# Shows all booked appointments for today to laborant, then a new test can be initiated from here
+def all_appointments():
+    today = datetime(datetime.today().year, datetime.today().month, datetime.today().day)
+    tomorrow = today + timedelta(1)
+    booked_appointments = Appointment.query.filter(Appointment.date >= today, Appointment.date < tomorrow, Appointment.available == False).all()
+    return render_template('appointments/all_appointments.html', appointments=booked_appointments) 
+
+# AJAX CALLS FOR FRONT END
+@appointments.route('/update_timeslots', methods=['POST'])
+def update_timeslots():
+    date = request.json['date']
+    year, month, day = date.split('-')
+    today = datetime(int(year), int(month), int(day))
+    tomorrow = today + timedelta(days=1)
+    timeslots = Appointment.query.filter(Appointment.date >= today, Appointment.date <= tomorrow).order_by(Appointment.date).all()
+    if len(timeslots) > 0:
+        return render_template('appointments/timeslots.html', timeslots=timeslots)

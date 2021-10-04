@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block content %} 
+<div class="mx-auto w-2/5 h-4/5 overflow-auto no-scrollbar">
+  {{ html }}
+</div>
+
+<script>
+var ul = document.getElementsByClassName('highlight')[0];
+var liSelected;
+var index = 1;
+
+document.addEventListener('keydown', function(event) {
+    var len = ul.getElementsByTagName('p').length-1;
+
+    // DOWN ARROW 
+    if(event.which === 40) {
+        index++;
+
+        if (liSelected) {
+            removeClass(liSelected, 'selected');
+            var next = ul.getElementsByTagName('p')[index];
+
+            while (next.classList.contains('oneline') == true)  {
+                  addClass(ul.getElementsByTagName('p')[index+1], 'selected');
+                  var neighbour = ul.getElementsByTagName('p')[index+1];
+                  console.log('still looping')
+                  if (neighbour.classList.contains('empty')) {
+                    break;
+                  }
+            }
+            if(typeof next !== undefined && index <= len) {
+                liSelected = next;
+            }
+            else {
+                index = 0;
+                liSelected = ul.getElementsByTagName('p')[0];
+            }
+
+            addClass(liSelected, 'selected');
+            console.log(index);
+        }
+        else {
+            index = 0;
+            liSelected = ul.getElementsByTagName('p')[0];
+            addClass(liSelected, 'selected');
+        }
+    }
+
+    // UP ARROW
+    else if (event.which === 38) {
+        if (liSelected) {
+            removeClass(liSelected, 'selected');
+            index--;
+            next = ul.getElementsByTagName('p')[index];
+
+            if(typeof next !== undefined && index >= 0) {
+                liSelected = next;
+            }
+            else {
+                index = len;
+                liSelected = ul.getElementsByTagName('p')[len];
+            }
+
+            addClass(liSelected, 'selected');
+        }
+        else {
+            index = 0;
+            liSelected = ul.getElementsByTagName('p')[len];
+            addClass(liSelected, 'selected');
+        }
+    }
+}, false);
+
+function removeClass(el, className) {
+    if(el.classList) {
+        el.classList.remove(className);
+    } else {
+        el.className = el.className.replace(new RegExp('(^|\\b)' + className.split(' ').join('|') + '(\\b|$)', 'gi'), ' ');
+    }
+};
+
+function addClass(el, className) {
+    if(el.classList) {
+        el.classList.add(className);
+    } else {
+        el.className += ' ' + className;
+    }
+};
+</script>
+{% endblock %}
